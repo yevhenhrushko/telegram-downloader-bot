@@ -229,10 +229,26 @@ async def _handle_channel_download(update: Update, status_msg, url: str) -> None
     output_dir = DOWNLOADS_DIR / "telegram"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    progress_state = {"msg": "", "active": True}
+    import time as _time
+    progress_state = {"msg": "", "active": True, "start": _time.time()}
 
     def _on_channel_progress(current, total, overall_pct):
-        progress_state["msg"] = f"Downloading: {current} of {total} files (Progress: {overall_pct}%)"
+        elapsed = _time.time() - progress_state["start"]
+        eta_str = ""
+        if overall_pct > 0 and elapsed > 5:
+            eta_seconds = int(elapsed / overall_pct * (100 - overall_pct))
+            if eta_seconds >= 3600:
+                h = eta_seconds // 3600
+                m = (eta_seconds % 3600) // 60
+                s = eta_seconds % 60
+                eta_str = f"\nETA: ~{h}h {m}m {s}s left"
+            elif eta_seconds >= 60:
+                m = eta_seconds // 60
+                s = eta_seconds % 60
+                eta_str = f"\nETA: ~{m}m {s}s left"
+            else:
+                eta_str = f"\nETA: ~{eta_seconds}s left"
+        progress_state["msg"] = f"Downloading: {current} of {total} files (Progress: {overall_pct}%){eta_str}"
 
     async def _update_progress():
         last_msg = ""
