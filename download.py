@@ -47,8 +47,8 @@ def build_filenames(username: str, tweet_id: str, original_files: list[str]) -> 
     return result
 
 
-def _has_video(url: str) -> bool:
-    """Check if tweet contains video using yt-dlp info extraction."""
+def _extract_tweet_info(url: str) -> dict:
+    """Extract tweet metadata using yt-dlp. Returns info dict with uploader_id, id, formats."""
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -59,7 +59,7 @@ def _has_video(url: str) -> bool:
         ydl_opts["cookiefile"] = str(COOKIES_FILE)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        return bool(info and info.get("formats"))
+        return info or {}
 
 
 def _download_video(url: str, tmpdir: str) -> None:
@@ -106,7 +106,7 @@ def _collect_files(tmpdir: str) -> list[str]:
 
 def download_media(url: str) -> list[str]:
     """Download all media from a tweet URL. Returns list of saved file paths."""
-    username, tweet_id = parse_tweet_url(url)
+    url_username, url_tweet_id = parse_tweet_url(url)
 
     DOWNLOADS_DIR.mkdir(exist_ok=True)
 
@@ -114,9 +114,14 @@ def download_media(url: str) -> list[str]:
         print(f"Warning: {COOKIES_FILE} not found. Proceeding without auth.", file=sys.stderr)
         print("Some content (NSFW, private) may not be accessible.", file=sys.stderr)
 
+    # Extract metadata to get real username and detect media type
+    info = _extract_tweet_info(url)
+    username = info.get("uploader_id") or url_username
+    tweet_id = url_tweet_id
+    has_video = bool(info.get("formats"))
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Try yt-dlp for video, fall back to gallery-dl for images
-        if _has_video(url):
+        if has_video:
             _download_video(url, tmpdir)
         else:
             _download_images(url, tmpdir)
