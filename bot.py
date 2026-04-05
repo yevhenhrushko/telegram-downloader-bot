@@ -41,7 +41,7 @@ TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50 MB
 NGINX_DIR = Path(os.environ.get("NGINX_DIR", "/var/www/downloads"))
 SERVER_URL = os.environ.get("SERVER_URL", "http://localhost:9090/files")
 
-URL_PATTERN = re.compile(r"https?://[^\s)\]>\"'.,!?]+")
+URL_PATTERN = re.compile(r"https?://\S+")
 
 # Allowed users (usernames without @, and phone numbers)
 ALLOWED_USERS = {
