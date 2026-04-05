@@ -200,7 +200,7 @@ async def _process_url(update: Update, url: str) -> None:
             async def _update_progress():
                 last_msg = ""
                 while progress_state["active"]:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(2)
                     msg = progress_state["msg"]
                     if msg and msg != last_msg:
                         await _safe_edit(status_msg, msg)

@@ -502,8 +502,7 @@ def _ensure_h264(filepath: str, progress_callback=None) -> str:
                     try:
                         time_ms = int(line.split("=")[1].strip())
                         pct = min(int(time_ms / (duration * 1_000_000) * 100), 99)
-                        if pct != last_pct and pct % 10 == 0:
-                            print(f"  Encoding: {pct}%", file=sys.stderr)
+                        if pct != last_pct:
                             if progress_callback:
                                 progress_callback("convert", pct)
                             last_pct = pct
