@@ -85,3 +85,25 @@ def download_media(url: str) -> list[str]:
             saved_paths.append(str(dst))
 
     return saved_paths
+
+
+def main():
+    if len(sys.argv) != 2:
+        print(f"Usage: python {sys.argv[0]} <tweet_url>", file=sys.stderr)
+        sys.exit(1)
+
+    url = sys.argv[1]
+
+    try:
+        parse_tweet_url(url)  # validate early
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    saved = download_media(url)
+    for path in saved:
+        print(path)
+
+
+if __name__ == "__main__":
+    main()
