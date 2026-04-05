@@ -34,9 +34,40 @@ SERVER_URL = os.environ.get("SERVER_URL", "http://localhost:8080/files")
 
 URL_PATTERN = re.compile(r"https?://\S+")
 
+# Allowed users (usernames without @, and phone numbers)
+ALLOWED_USERS = {
+    "top_photographer",
+    "yevhen_hrushko",
+}
+ALLOWED_PHONES = {
+    "+380682649098",
+}
+# Cache of verified user IDs (populated at runtime)
+_verified_user_ids: set[int] = set()
+
+
+async def _is_allowed(update: Update) -> bool:
+    """Check if user is allowed to use the bot."""
+    user = update.effective_user
+    if not user:
+        return False
+    # Already verified this session
+    if user.id in _verified_user_ids:
+        return True
+    # Check username
+    if user.username and user.username.lower() in ALLOWED_USERS:
+        _verified_user_ids.add(user.id)
+        return True
+    return False
+
 
 async def start_command(update: Update, context) -> None:
     """Handle /start command."""
+    if not await _is_allowed(update):
+        await update.message.reply_text(
+            "Access restricted. Use /auth to verify via phone number."
+        )
+        return
     await update.message.reply_text(
         "Send me a URL from X/Twitter, Instagram, or Telegram.\n"
         "I'll download the media and send it back in best quality.\n\n"
@@ -47,8 +78,58 @@ async def start_command(update: Update, context) -> None:
     )
 
 
+async def auth_command(update: Update, context) -> None:
+    """Handle /auth — request phone number for verification."""
+    user = update.effective_user
+    if user and user.id in _verified_user_ids:
+        await update.message.reply_text("You're already verified.")
+        return
+    if user and user.username and user.username.lower() in ALLOWED_USERS:
+        _verified_user_ids.add(user.id)
+        await update.message.reply_text("Verified by username. You're in!")
+        return
+
+    from telegram import ReplyKeyboardMarkup, KeyboardButton
+    keyboard = ReplyKeyboardMarkup(
+        [[KeyboardButton("Share phone number", request_contact=True)]],
+        one_time_keyboard=True, resize_keyboard=True,
+    )
+    await update.message.reply_text(
+        "Please share your phone number to verify access.",
+        reply_markup=keyboard,
+    )
+
+
+async def handle_contact(update: Update, context) -> None:
+    """Handle shared contact for phone verification."""
+    from telegram import ReplyKeyboardRemove
+    contact = update.message.contact
+    if not contact:
+        return
+
+    phone = contact.phone_number
+    if not phone.startswith("+"):
+        phone = f"+{phone}"
+
+    if phone in ALLOWED_PHONES:
+        _verified_user_ids.add(update.effective_user.id)
+        await update.message.reply_text(
+            "Verified! You can now send URLs.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        logger.info(f"User {update.effective_user.id} verified via phone {phone}")
+    else:
+        await update.message.reply_text(
+            "Phone number not authorized.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
+
 async def handle_url(update: Update, context) -> None:
     """Handle incoming URLs — download and send media."""
+    if not await _is_allowed(update):
+        await update.message.reply_text("Access restricted. Use /auth to verify.")
+        return
     text = update.message.text.strip()
     urls = URL_PATTERN.findall(text)
 
@@ -213,6 +294,8 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("auth", auth_command))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
 
     logger.info("Bot started. Waiting for messages...")
