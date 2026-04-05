@@ -359,7 +359,12 @@ def _download_telegram(url: str, tmpdir: str) -> tuple[str, str]:
         await client.start()
         try:
             entity_id = _resolve_telegram_entity_id(channel)
-            entity = await client.get_entity(entity_id)
+            try:
+                entity = await client.get_entity(entity_id)
+            except ValueError:
+                # Entity not in cache — fetch dialogs to populate it
+                await client.get_dialogs()
+                entity = await client.get_entity(entity_id)
             entity_name = getattr(entity, 'username', None) or getattr(entity, 'title', None) or getattr(entity, 'first_name', channel)
             entity_name = entity_name.replace("/", "_").replace(" ", "_")
 
@@ -402,7 +407,11 @@ def _download_telegram_channel(url: str, output_dir: Path) -> list[str]:
 
     async def _run_download(client):
         entity_id = _resolve_telegram_entity_id(channel)
-        entity = await client.get_entity(entity_id)
+        try:
+            entity = await client.get_entity(entity_id)
+        except ValueError:
+            await client.get_dialogs()
+            entity = await client.get_entity(entity_id)
         channel_name = getattr(entity, 'username', None) or getattr(entity, 'title', None) or getattr(entity, 'first_name', channel)
         channel_name = channel_name.replace("/", "_").replace(" ", "_")
 
