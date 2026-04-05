@@ -387,8 +387,11 @@ def _download_telegram(url: str, tmpdir: str) -> tuple[str, str]:
         raise DownloadError(f"Telegram error: {e}") from e
 
 
-def _download_telegram_channel(url: str, output_dir: Path) -> list[str]:
-    """Download all media from a Telegram channel with async parallel. Returns saved file paths."""
+def _download_telegram_channel(url: str, output_dir: Path, progress_callback=None) -> list[str]:
+    """Download all media from a Telegram channel with async parallel. Returns saved file paths.
+
+    progress_callback: optional callable(current, total) called after each file.
+    """
     from telethon import TelegramClient as AsyncTelegramClient
 
     channel, _ = parse_telegram_url(url)
@@ -441,6 +444,8 @@ def _download_telegram_channel(url: str, output_dir: Path) -> list[str]:
                     existing = list(channel_dir.glob(f"{msg.id}.*"))
                     if existing:
                         counter += 1
+                        if progress_callback:
+                            progress_callback(counter, total)
                         return str(existing[0])
 
                     path = await client.download_media(msg, file=str(channel_dir))
@@ -451,6 +456,8 @@ def _download_telegram_channel(url: str, output_dir: Path) -> list[str]:
                         if Path(path) != final_path:
                             Path(path).rename(final_path)
                         counter += 1
+                        if progress_callback:
+                            progress_callback(counter, total)
                         print(f"\r  [{counter}/{total}] {final_name}", file=sys.stderr, end="", flush=True)
                         return str(final_path)
                     counter += 1

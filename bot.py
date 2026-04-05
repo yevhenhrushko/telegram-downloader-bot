@@ -229,11 +229,29 @@ async def _handle_channel_download(update: Update, status_msg, url: str) -> None
     output_dir = DOWNLOADS_DIR / "telegram"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Run in executor — _download_telegram_channel calls asyncio.run() internally
-    loop = asyncio.get_event_loop()
-    saved = await loop.run_in_executor(
-        None, functools.partial(_download_telegram_channel, url, output_dir)
-    )
+    progress_state = {"msg": "", "active": True}
+
+    def _on_channel_progress(current, total):
+        progress_state["msg"] = f"Downloading {current}/{total} files..."
+
+    async def _update_progress():
+        last_msg = ""
+        while progress_state["active"]:
+            await asyncio.sleep(2)
+            msg = progress_state["msg"]
+            if msg and msg != last_msg:
+                await _safe_edit(status_msg, msg)
+                last_msg = msg
+
+    progress_task = asyncio.create_task(_update_progress())
+    try:
+        loop = asyncio.get_event_loop()
+        saved = await loop.run_in_executor(
+            None, functools.partial(_download_telegram_channel, url, output_dir, progress_callback=_on_channel_progress)
+        )
+    finally:
+        progress_state["active"] = False
+        progress_task.cancel()
 
     if not saved:
         await _safe_edit(status_msg, "No media found in this channel.")
