@@ -390,7 +390,10 @@ def _download_telegram(url: str, tmpdir: str) -> tuple[str, str]:
 def _download_telegram_channel(url: str, output_dir: Path, progress_callback=None) -> list[str]:
     """Download all media from a Telegram channel with async parallel. Returns saved file paths.
 
-    progress_callback: optional callable(current, total) called after each file.
+    progress_callback: optional callable(current, total, file_pct) called during downloads.
+      current: files completed so far
+      total: total files
+      file_pct: current file download progress 0-100 (or -1 if between files)
     """
     from telethon import TelegramClient as AsyncTelegramClient
 
@@ -445,10 +448,15 @@ def _download_telegram_channel(url: str, output_dir: Path, progress_callback=Non
                     if existing:
                         counter += 1
                         if progress_callback:
-                            progress_callback(counter, total)
+                            progress_callback(counter, total, -1)
                         return str(existing[0])
 
-                    path = await client.download_media(msg, file=str(channel_dir))
+                    def _file_progress(received, file_total):
+                        if progress_callback and file_total:
+                            pct = min(int(received / file_total * 100), 99)
+                            progress_callback(counter, total, pct)
+
+                    path = await client.download_media(msg, file=str(channel_dir), progress_callback=_file_progress)
                     if path:
                         actual_ext = Path(path).suffix
                         final_name = f"{msg.id}{actual_ext}"
@@ -457,7 +465,7 @@ def _download_telegram_channel(url: str, output_dir: Path, progress_callback=Non
                             Path(path).rename(final_path)
                         counter += 1
                         if progress_callback:
-                            progress_callback(counter, total)
+                            progress_callback(counter, total, 100)
                         print(f"\r  [{counter}/{total}] {final_name}", file=sys.stderr, end="", flush=True)
                         return str(final_path)
                     counter += 1

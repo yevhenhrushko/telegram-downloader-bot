@@ -231,8 +231,11 @@ async def _handle_channel_download(update: Update, status_msg, url: str) -> None
 
     progress_state = {"msg": "", "active": True}
 
-    def _on_channel_progress(current, total):
-        progress_state["msg"] = f"Downloading {current}/{total} files..."
+    def _on_channel_progress(current, total, file_pct):
+        if file_pct >= 0:
+            progress_state["msg"] = f"Downloading {current + 1}/{total} files... {file_pct}%"
+        else:
+            progress_state["msg"] = f"Downloading {current}/{total} files..."
 
     async def _update_progress():
         last_msg = ""
