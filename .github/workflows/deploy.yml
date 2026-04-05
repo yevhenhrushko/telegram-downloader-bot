@@ -43,8 +43,10 @@ jobs:
             set -e
             DEPLOY_DIR=/home/ubuntu/xdownloader
             if [ ! -d "$DEPLOY_DIR/.git" ]; then
-              rm -rf "$DEPLOY_DIR/docker-compose.yml" 2>/dev/null || true
-              git clone https://github.com/yevhenhrushko/X-downloader.git "$DEPLOY_DIR"
+              cd "$DEPLOY_DIR" 2>/dev/null || mkdir -p "$DEPLOY_DIR"
+              cd "$DEPLOY_DIR"
+              git init
+              git remote add origin https://github.com/yevhenhrushko/X-downloader.git
             fi
             cd "$DEPLOY_DIR"
             git fetch origin master
