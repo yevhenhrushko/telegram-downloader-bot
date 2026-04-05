@@ -4,6 +4,7 @@
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -13,6 +14,7 @@ import yt_dlp
 SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 DOWNLOADS_DIR = SCRIPT_DIR / "downloads"
 COOKIES_FILE = SCRIPT_DIR / "cookies.txt"
+VENV_BIN = SCRIPT_DIR / "venv" / "bin"
 
 
 def parse_tweet_url(url: str) -> tuple[str, str]:
@@ -45,43 +47,95 @@ def build_filenames(username: str, tweet_id: str, original_files: list[str]) -> 
     return result
 
 
+def _has_video(url: str) -> bool:
+    """Check if tweet contains video using yt-dlp info extraction."""
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "ignore_no_formats_error": True,
+    }
+    if COOKIES_FILE.exists():
+        ydl_opts["cookiefile"] = str(COOKIES_FILE)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        return bool(info and info.get("formats"))
+
+
+def _download_video(url: str, tmpdir: str) -> None:
+    """Download video using yt-dlp (best quality with ffmpeg merge)."""
+    ydl_opts = {
+        "format": "bestvideo+bestaudio/best",
+        "outtmpl": os.path.join(tmpdir, "%(id)s_%(autonumber)s.%(ext)s"),
+        "merge_output_format": "mp4",
+        "quiet": False,
+        "no_warnings": False,
+    }
+    if COOKIES_FILE.exists():
+        ydl_opts["cookiefile"] = str(COOKIES_FILE)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+
+def _download_images(url: str, tmpdir: str) -> None:
+    """Download images using gallery-dl."""
+    cmd = [
+        str(VENV_BIN / "gallery-dl"),
+        "-d", tmpdir,
+        "--filename", "{tweet_id}_{num}.{extension}",
+        "--no-mtime",
+    ]
+    if COOKIES_FILE.exists():
+        cmd.extend(["--cookies", str(COOKIES_FILE)])
+    cmd.append(url)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"gallery-dl error: {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _collect_files(tmpdir: str) -> list[str]:
+    """Recursively collect all downloaded files from tmpdir."""
+    files = []
+    for root, _, filenames in os.walk(tmpdir):
+        for f in filenames:
+            files.append(os.path.join(root, f))
+    files.sort()
+    return files
+
+
 def download_media(url: str) -> list[str]:
     """Download all media from a tweet URL. Returns list of saved file paths."""
     username, tweet_id = parse_tweet_url(url)
 
     DOWNLOADS_DIR.mkdir(exist_ok=True)
 
+    if not COOKIES_FILE.exists():
+        print(f"Warning: {COOKIES_FILE} not found. Proceeding without auth.", file=sys.stderr)
+        print("Some content (NSFW, private) may not be accessible.", file=sys.stderr)
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        ydl_opts = {
-            "format": "bestvideo+bestaudio/best",
-            "outtmpl": os.path.join(tmpdir, "%(id)s_%(autonumber)s.%(ext)s"),
-            "merge_output_format": "mp4",
-            "quiet": False,
-            "no_warnings": False,
-        }
-
-        if COOKIES_FILE.exists():
-            ydl_opts["cookiefile"] = str(COOKIES_FILE)
+        # Try yt-dlp for video, fall back to gallery-dl for images
+        if _has_video(url):
+            _download_video(url, tmpdir)
         else:
-            print(f"Warning: {COOKIES_FILE} not found. Proceeding without auth.", file=sys.stderr)
-            print("Some content (NSFW, private) may not be accessible.", file=sys.stderr)
+            _download_images(url, tmpdir)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        # Collect downloaded files
-        downloaded = sorted(os.listdir(tmpdir))
-        if not downloaded:
+        # Collect all downloaded files
+        downloaded_paths = _collect_files(tmpdir)
+        if not downloaded_paths:
             print("Error: No media files were downloaded.", file=sys.stderr)
             sys.exit(1)
 
-        # Rename and move to downloads/
-        name_map = build_filenames(username, tweet_id, downloaded)
+        # Extract just filenames for renaming
+        downloaded_names = [os.path.basename(p) for p in downloaded_paths]
+        name_map = build_filenames(username, tweet_id, downloaded_names)
+
         saved_paths = []
-        for orig, new_name in name_map.items():
-            src = os.path.join(tmpdir, orig)
+        for full_path, orig_name in zip(downloaded_paths, downloaded_names):
+            new_name = name_map[orig_name]
             dst = DOWNLOADS_DIR / new_name
-            shutil.move(src, dst)
+            shutil.move(full_path, dst)
             saved_paths.append(str(dst))
 
     return saved_paths
