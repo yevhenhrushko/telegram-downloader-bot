@@ -339,7 +339,7 @@ def _get_telegram_channel_name(entity, fallback: str) -> str:
 
 def _download_telegram(url: str, tmpdir: str) -> tuple[str, str]:
     """Download single Telegram message media. Returns (channel_name, message_id)."""
-    from telethon.sync import TelegramClient
+    from telethon import TelegramClient as AsyncTelegramClient
 
     channel, message_id = parse_telegram_url(url)
 
@@ -347,24 +347,33 @@ def _download_telegram(url: str, tmpdir: str) -> tuple[str, str]:
     if not session_path.exists():
         raise DownloadError("Telegram session not found. Run: ./venv/bin/python setup_telegram.py")
 
-    try:
-        with TelegramClient(TELEGRAM_SESSION, TELEGRAM_API_ID, TELEGRAM_API_HASH) as client:
-            entity = _resolve_telegram_entity(client, channel)
-            channel_name = _get_telegram_channel_name(entity, channel)
+    async def _run():
+        client = AsyncTelegramClient(TELEGRAM_SESSION, TELEGRAM_API_ID, TELEGRAM_API_HASH)
+        await client.start()
+        try:
+            entity = await client.get_entity(
+                int(f"-100{channel.split('/')[1]}") if channel.startswith("c/") else channel
+            )
+            channel_name = getattr(entity, 'username', None) or getattr(entity, 'title', channel)
+            channel_name = channel_name.replace("/", "_").replace(" ", "_")
 
-            msg = client.get_messages(entity, ids=int(message_id))
+            msg = await client.get_messages(entity, ids=int(message_id))
             if not msg or not msg.media:
                 raise DownloadError("No media found in this Telegram message.")
 
-            path = client.download_media(msg, file=tmpdir)
+            path = await client.download_media(msg, file=tmpdir)
             if path:
                 print(f"Downloaded: {os.path.basename(path)}", file=sys.stderr)
+            return channel_name, message_id
+        finally:
+            await client.disconnect()
+
+    try:
+        return asyncio.run(_run())
     except DownloadError:
         raise
     except Exception as e:
         raise DownloadError(f"Telegram error: {e}") from e
-
-    return channel_name, message_id
 
 
 def _download_telegram_channel(url: str, output_dir: Path) -> list[str]:
