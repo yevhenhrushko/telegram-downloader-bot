@@ -438,7 +438,22 @@ def _download_telegram_channel(url: str, output_dir: Path, progress_callback=Non
 
         saved_paths = []
         counter = 0
+        last_reported_pct = -1
         sem = asyncio.Semaphore(10)
+
+        # Track per-file progress for overall calculation
+        file_progress = {}  # msg.id -> fraction 0.0..1.0
+
+        def _report_overall():
+            nonlocal last_reported_pct
+            if not progress_callback:
+                return
+            # Overall = (completed files + sum of partial fractions) / total
+            partial_sum = sum(file_progress.values())
+            overall_pct = min(int((counter + partial_sum) / total * 100), 99)
+            if overall_pct > last_reported_pct:
+                progress_callback(counter, total, overall_pct)
+                last_reported_pct = overall_pct
 
         async def download_one(msg):
             nonlocal counter
@@ -447,14 +462,13 @@ def _download_telegram_channel(url: str, output_dir: Path, progress_callback=Non
                     existing = list(channel_dir.glob(f"{msg.id}.*"))
                     if existing:
                         counter += 1
-                        if progress_callback:
-                            progress_callback(counter, total, -1)
+                        _report_overall()
                         return str(existing[0])
 
                     def _file_progress(received, file_total):
-                        if progress_callback and file_total:
-                            pct = min(int(received / file_total * 100), 99)
-                            progress_callback(counter, total, pct)
+                        if file_total:
+                            file_progress[msg.id] = received / file_total
+                            _report_overall()
 
                     path = await client.download_media(msg, file=str(channel_dir), progress_callback=_file_progress)
                     if path:
@@ -463,9 +477,9 @@ def _download_telegram_channel(url: str, output_dir: Path, progress_callback=Non
                         final_path = channel_dir / final_name
                         if Path(path) != final_path:
                             Path(path).rename(final_path)
+                        file_progress.pop(msg.id, None)
                         counter += 1
-                        if progress_callback:
-                            progress_callback(counter, total, 100)
+                        _report_overall()
                         print(f"\r  [{counter}/{total}] {final_name}", file=sys.stderr, end="", flush=True)
                         return str(final_path)
                     counter += 1
