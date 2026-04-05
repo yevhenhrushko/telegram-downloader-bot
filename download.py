@@ -251,6 +251,7 @@ def _download_twitter_images(url: str, tmpdir: str) -> None:
         "-d", tmpdir,
         "--filename", "{tweet_id}_{num}.{extension}",
         "--no-mtime",
+        "-o", "quoted=true",
     ]
     cookies = _get_cookies("twitter")
     if cookies:
