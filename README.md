@@ -1,8 +1,8 @@
 # X-Downloader
 
-CLI tool to download videos and images from X (Twitter), Instagram, and Telegram in best quality.
+CLI tool and Telegram bot for downloading media from X (Twitter), Instagram, and Telegram in best quality.
 
-## Setup (one-time)
+## CLI Setup (local use)
 
 ```bash
 cd X-downloader
@@ -14,18 +14,16 @@ python3 -m venv venv
 
 Export cookies from your browser using a cookie extension (e.g., "Get cookies.txt") and save to the project root:
 
-- `x_cookies.txt` — X/Twitter (rename from `x.com_cookies.txt`)
+- `x_cookies.txt` — X/Twitter
 - `www.instagram.com_cookies.txt` — Instagram
 
 ### Telegram Setup
-
-Telegram uses the Telegram API (not cookies). One-time setup:
 
 ```bash
 ./venv/bin/python setup_telegram.py
 ```
 
-Enter your phone number and the code Telegram sends you. This creates a `telegram.session` file for future use.
+Enter your phone number and the code Telegram sends you. Creates `telegram.session`.
 
 ### Check Cookie Health
 
@@ -33,28 +31,25 @@ Enter your phone number and the code Telegram sends you. This creates a `telegra
 ./download --check
 ```
 
-Reports status and expiry for all cookie files and Telegram session.
-
-## Usage
+## CLI Usage
 
 ```bash
 ./download <url>                          # Single URL
 ./download <url1> <url2> <url3>           # Multiple URLs (batch)
 ./download -c                             # Download from clipboard
-./download -f urls.txt                    # Download from file (one URL per line)
+./download -f urls.txt                    # Download from file
 ./download --force <url>                  # Re-download even if exists
 ```
 
-## Examples
+## CLI Examples
 
 ```bash
 # X/Twitter
 ./download "https://x.com/user/status/1234567890"
 
-# Instagram - post/reel/story
+# Instagram
 ./download "https://www.instagram.com/p/ABC123/"
 ./download "https://www.instagram.com/reel/XYZ789/"
-./download "https://www.instagram.com/stories/username/1234567890"
 
 # Telegram - single message
 ./download "https://t.me/channel/123"
@@ -63,19 +58,55 @@ Reports status and expiry for all cookie files and Telegram session.
 ./download "https://t.me/channel"
 ./download "https://web.telegram.org/a/#-1002899724101"
 
-# Batch - multiple URLs at once
-./download "https://x.com/a/status/1" "https://instagram.com/p/ABC" "https://t.me/ch/5"
-
-# Clipboard - copy URL in browser, then
+# Batch + clipboard
 ./download -c
-
-# From file
 ./download -f saved_urls.txt
 ```
 
-## Output
+## Telegram Bot (@yh_downloader_bot)
 
-Files are organized by platform:
+Send any URL to the bot — it downloads media and sends it back as documents (no compression).
+
+### Bot Features
+
+- Send URL -> get media back as documents (original quality)
+- Multiple files grouped into albums (max 10 per album)
+- Files > 50MB served as download links via nginx
+- Full Telegram channel download supported
+- Auto-cleanup: all files deleted after 24 hours
+
+### Bot Deployment (Docker)
+
+```bash
+# Set environment variables
+export DOWNLOADER_BOT_TOKEN=your_bot_token
+export SERVER_HOST=your_server_ip
+
+# Deploy
+docker-compose up -d
+```
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DOWNLOADER_BOT_TOKEN` | yes | Telegram bot token from @BotFather |
+| `SERVER_HOST` | yes | Server IP/domain for nginx download links |
+| `TELEGRAM_API_ID` | no | Telegram API ID (has default) |
+| `TELEGRAM_API_HASH` | no | Telegram API hash (has default) |
+
+### Docker Services
+
+- **bot** — Python app running bot.py with download.py
+- **nginx** — Serves large files (>50MB) on port 8080
+
+### Required Files (mount as volumes)
+
+- `x_cookies.txt` — X/Twitter cookies
+- `www.instagram.com_cookies.txt` — Instagram cookies
+- `telegram.session` — Telegram session (run setup_telegram.py locally first)
+
+## Output Structure
 
 ```
 downloads/
@@ -84,18 +115,6 @@ downloads/
   telegram/
     ChannelName/  ID.ext
 ```
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| Multi-platform | X/Twitter, Instagram, Telegram |
-| Batch download | Multiple URLs, file input, clipboard |
-| Duplicate skip | Auto-skips already downloaded files |
-| Full channel | Download entire Telegram channels (10 threads) |
-| Best quality | Highest resolution, VP9 auto-converted to H.264 |
-| Cookie check | `--check` validates all auth |
-| Platform folders | Organized by platform automatically |
 
 ## Supported Platforms
 
@@ -108,5 +127,5 @@ downloads/
 ## Dependencies
 
 - Python 3.13+
-- ffmpeg (via Homebrew: `brew install ffmpeg`)
-- yt-dlp, gallery-dl, telethon, requests (via pip)
+- ffmpeg
+- yt-dlp, gallery-dl, telethon, requests, python-telegram-bot
