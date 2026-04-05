@@ -40,29 +40,18 @@ jobs:
           key: ${{ secrets.OCI_SSH_KEY }}
           envs: DOWNLOADER_BOT_TOKEN
           script: |
+            set -e
             DEPLOY_DIR=/home/ubuntu/xdownloader
-
-            # First-time setup
-            if [ ! -d "$DEPLOY_DIR" ]; then
+            if [ ! -d "$DEPLOY_DIR/.git" ]; then
+              rm -rf "$DEPLOY_DIR/docker-compose.yml" 2>/dev/null || true
               git clone https://github.com/yevhenhrushko/X-downloader.git "$DEPLOY_DIR"
             fi
-
             cd "$DEPLOY_DIR"
-
-            # Fetch and sync
             git fetch origin master
             git reset --hard origin/master
-
-            # Write .env for docker-compose
-            cat > .env << EOF2
-            DOWNLOADER_BOT_TOKEN=$DOWNLOADER_BOT_TOKEN
-            SERVER_HOST=158.180.23.247
-            EOF2
-
-            # Build and deploy
+            echo "DOWNLOADER_BOT_TOKEN=$DOWNLOADER_BOT_TOKEN" > .env
+            echo "SERVER_HOST=158.180.23.247" >> .env
             docker compose up -d --build --force-recreate
-
-            # Wait and verify
             sleep 5
             docker compose ps
             echo "--- Last 20 log lines ---"
