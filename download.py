@@ -373,6 +373,17 @@ def _download_instagram(url: str, tmpdir: str) -> tuple[str, str]:
 # --- YouTube ---
 
 
+def _youtube_ydl_opts() -> dict:
+    """Common yt-dlp options for YouTube (cookies + JS runtime)."""
+    opts = {}
+    cookies = _get_cookies("youtube")
+    if cookies:
+        opts["cookiefile"] = str(cookies)
+    if shutil.which("node"):
+        opts["extractor_args"] = {"youtube": {"js_runtimes": ["nodejs"]}}
+    return opts
+
+
 def extract_youtube_info(url: str) -> dict:
     """Extract YouTube video/playlist metadata without downloading.
 
@@ -383,10 +394,8 @@ def extract_youtube_info(url: str) -> dict:
         "no_warnings": True,
         "skip_download": True,
         "ignore_no_formats_error": True,
+        **_youtube_ydl_opts(),
     }
-    cookies = _get_cookies("youtube")
-    if cookies:
-        ydl_opts["cookiefile"] = str(cookies)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -437,6 +446,8 @@ def _download_youtube(url: str, tmpdir: str, mp3: bool = False, progress_callbac
             except (ValueError, TypeError):
                 pass
 
+    yt_common = _youtube_ydl_opts()
+
     if mp3:
         ydl_opts = {
             "format": "bestaudio/best",
@@ -449,6 +460,7 @@ def _download_youtube(url: str, tmpdir: str, mp3: bool = False, progress_callbac
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [_progress_hook],
+            **yt_common,
         }
     else:
         ydl_opts = {
@@ -458,11 +470,8 @@ def _download_youtube(url: str, tmpdir: str, mp3: bool = False, progress_callbac
             "quiet": True,
             "no_warnings": True,
             "progress_hooks": [_progress_hook],
+            **yt_common,
         }
-
-    cookies = _get_cookies("youtube")
-    if cookies:
-        ydl_opts["cookiefile"] = str(cookies)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -487,10 +496,8 @@ def _download_youtube_playlist(url: str, tmpdir: str, mp3: bool = False, progres
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": True,
+        **_youtube_ydl_opts(),
     }
-    cookies = _get_cookies("youtube")
-    if cookies:
-        ydl_opts["cookiefile"] = str(cookies)
 
     # First pass: get list of video URLs
     try:

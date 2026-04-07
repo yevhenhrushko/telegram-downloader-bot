@@ -56,15 +56,10 @@ jobs:
             echo "SERVER_HOST=158.180.23.247" >> .env
             if [ -n "$YOUTUBE_COOKIES_B64" ]; then
               echo "$YOUTUBE_COOKIES_B64" | base64 -d > youtube_cookies.txt
-              echo "YouTube cookies: $(wc -c < youtube_cookies.txt) bytes, $(wc -l < youtube_cookies.txt) lines"
-            else
-              echo "WARNING: YOUTUBE_COOKIES_B64 secret is empty"
             fi
             docker compose down --remove-orphans 2>/dev/null || true
             docker compose up -d --build --force-recreate
             sleep 5
             docker compose ps
-            docker compose exec -T bot ls -la /app/youtube_cookies.txt 2>&1 || echo "Cookie file NOT found in container"
-            docker compose exec -T bot head -1 /app/youtube_cookies.txt 2>&1 || true
             echo "--- Last 20 log lines ---"
             docker compose logs --tail=20
