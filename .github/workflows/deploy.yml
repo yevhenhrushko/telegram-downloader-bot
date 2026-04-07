@@ -57,6 +57,7 @@ jobs:
             if [ -n "$YOUTUBE_COOKIES" ]; then
               printf '%s\n' "$YOUTUBE_COOKIES" > youtube_cookies.txt
             fi
+            docker compose down --remove-orphans 2>/dev/null || true
             docker compose up -d --build --force-recreate
             sleep 5
             docker compose ps
