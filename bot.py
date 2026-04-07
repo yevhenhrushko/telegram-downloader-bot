@@ -168,7 +168,7 @@ async def _run_download(update: Update, status_msg, url: str, mp3: bool = False)
         progress_state["active"] = False
         progress_task.cancel()
 
-    await _send_files(update, status_msg, saved)
+    await _send_files(status_msg, saved)
 
 
 async def _handle_youtube_url(update: Update, context, url: str) -> None:
@@ -195,14 +195,15 @@ async def _handle_youtube_url(update: Update, context, url: str) -> None:
         views_str = f"\nViews: {views:,}" if views else ""
         meta_text = f"{title}\nChannel: {channel}\nDuration: {duration}{views_str}"
 
-    # Store URL in bot_data keyed by message ID (callback_data has 64-byte limit)
-    msg_key = f"yt_{status_msg.message_id}"
+    # Store URL in bot_data keyed by chat_id:message_id (unique across chats)
+    chat_id = status_msg.chat_id
+    msg_key = f"yt_{chat_id}_{status_msg.message_id}"
     context.bot_data[msg_key] = url
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Video", callback_data=f"yt:video:{status_msg.message_id}"),
-            InlineKeyboardButton("MP3", callback_data=f"yt:mp3:{status_msg.message_id}"),
+            InlineKeyboardButton("Video", callback_data=f"yt:video:{chat_id}:{status_msg.message_id}"),
+            InlineKeyboardButton("MP3", callback_data=f"yt:mp3:{chat_id}:{status_msg.message_id}"),
         ]
     ])
 
@@ -228,17 +229,17 @@ async def handle_youtube_callback(update: Update, context) -> None:
     if not data.startswith("yt:"):
         return
 
-    parts = data.split(":", 2)
-    if len(parts) != 3:
+    parts = data.split(":", 3)
+    if len(parts) != 4:
         logger.warning(f"Malformed YouTube callback data: {data}")
         await query.edit_message_text("Something went wrong. Please send the URL again.")
         return
 
-    _, format_choice, msg_id = parts
+    _, format_choice, chat_id, msg_id = parts
     mp3 = format_choice == "mp3"
 
     # Retrieve URL from bot_data
-    msg_key = f"yt_{msg_id}"
+    msg_key = f"yt_{chat_id}_{msg_id}"
     url = context.bot_data.pop(msg_key, None)
     if not url:
         await query.edit_message_text("Session expired. Please send the URL again.")
@@ -313,14 +314,19 @@ async def _handle_channel_download(update: Update, status_msg, url: str) -> None
         return
 
     await _safe_edit(status_msg, f"Downloaded {len(saved)} files. Sending...")
-    await _send_files(update, status_msg, saved)
+    await _send_files(status_msg, saved)
 
 
-async def _send_files(update: Update, status_msg, file_paths: list[str]) -> None:
-    """Send files to user as documents, grouped in albums of 10."""
+async def _send_files(status_msg, file_paths: list[str]) -> None:
+    """Send files to user as documents, grouped in albums of 10.
+
+    Uses status_msg.chat for sending — works for both message and callback contexts.
+    """
     if not file_paths:
         await _safe_edit(status_msg, "No files to send.")
         return
+
+    chat = status_msg.chat
 
     # Separate into sendable (≤50MB) and too-large (>50MB)
     sendable = []
@@ -341,12 +347,12 @@ async def _send_files(update: Update, status_msg, file_paths: list[str]) -> None
     sent_count = 0
     for i in range(0, len(sendable), 10):
         batch = sendable[i:i + 10]
-        await update.message.chat.send_action(ChatAction.UPLOAD_DOCUMENT)
+        await chat.send_action(ChatAction.UPLOAD_DOCUMENT)
 
         try:
             if len(batch) == 1:
                 with open(batch[0], "rb") as f:
-                    await update.message.reply_document(
+                    await chat.send_document(
                         document=f,
                         filename=os.path.basename(batch[0]),
                     )
@@ -358,7 +364,7 @@ async def _send_files(update: Update, status_msg, file_paths: list[str]) -> None
                     file_handles.append(fh)
                     media_group.append(InputMediaDocument(media=fh, filename=os.path.basename(path)))
                 try:
-                    await update.message.reply_media_group(media=media_group)
+                    await chat.send_media_group(media=media_group)
                 finally:
                     for fh in file_handles:
                         fh.close()
@@ -366,7 +372,7 @@ async def _send_files(update: Update, status_msg, file_paths: list[str]) -> None
             sent_count += len(batch)
         except Exception as e:
             logger.error(f"Failed to send batch {i + 1}–{i + len(batch)}: {e}")
-            await update.message.reply_text(
+            await chat.send_message(
                 f"Failed to send files {i + 1}–{i + len(batch)}. Continuing with rest..."
             )
 
@@ -379,14 +385,14 @@ async def _send_files(update: Update, status_msg, file_paths: list[str]) -> None
         size_mb = size_bytes / (1024 * 1024)
         link = _serve_large_file(path)
         if link:
-            await update.message.reply_text(
+            await chat.send_message(
                 f"File too large for Telegram ({size_mb:.1f} MB):\n"
                 f"[{filename}]({link})\n\n"
                 f"Link expires in 24 hours.",
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
-            await update.message.reply_text(
+            await chat.send_message(
                 f"File too large ({filename}, {size_mb:.1f} MB). Could not serve via download link."
             )
 
