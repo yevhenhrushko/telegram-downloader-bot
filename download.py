@@ -452,7 +452,7 @@ def _download_youtube(url: str, tmpdir: str, mp3: bool = False, progress_callbac
         }
     else:
         ydl_opts = {
-            "format": "bestvideo+bestaudio/best",
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
             "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
             "merge_output_format": "mp4",
             "quiet": True,
