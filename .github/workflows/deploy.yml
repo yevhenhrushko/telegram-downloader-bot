@@ -34,12 +34,12 @@ jobs:
         uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17  # v1.2.0
         env:
           DOWNLOADER_BOT_TOKEN: ${{ secrets.DOWNLOADER_BOT_TOKEN }}
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          YOUTUBE_COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
         with:
           host: ${{ secrets.OCI_HOST }}
           username: ${{ secrets.OCI_USER }}
           key: ${{ secrets.OCI_SSH_KEY }}
-          envs: DOWNLOADER_BOT_TOKEN,YOUTUBE_COOKIES
+          envs: DOWNLOADER_BOT_TOKEN,YOUTUBE_COOKIES_B64
           script: |
             set -e
             DEPLOY_DIR=/home/ubuntu/xdownloader
@@ -54,8 +54,8 @@ jobs:
             git reset --hard origin/master
             echo "DOWNLOADER_BOT_TOKEN=$DOWNLOADER_BOT_TOKEN" > .env
             echo "SERVER_HOST=158.180.23.247" >> .env
-            if [ -n "$YOUTUBE_COOKIES" ]; then
-              printf '%s\n' "$YOUTUBE_COOKIES" > youtube_cookies.txt
+            if [ -n "$YOUTUBE_COOKIES_B64" ]; then
+              echo "$YOUTUBE_COOKIES_B64" | base64 -d > youtube_cookies.txt
             fi
             docker compose down --remove-orphans 2>/dev/null || true
             docker compose up -d --build --force-recreate
