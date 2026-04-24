@@ -217,39 +217,75 @@ def _parse_cookie_expiry(cookies_path: Path) -> list[tuple[str, str, int]]:
     return entries
 
 
+def _summarize_cookie_health(platform: str) -> tuple[str, str]:
+    """Return (status, human-readable summary) for a platform cookie file."""
+    path = COOKIES_FILES[platform]
+    if not path.exists():
+        return "missing", f"MISSING ({path.name})"
+
+    entries = _parse_cookie_expiry(path)
+    if not entries:
+        return "empty", "EMPTY (no cookies found)"
+
+    now = int(time.time())
+    expired = [entry for entry in entries if 0 < entry[2] < now]
+    valid = [entry for entry in entries if entry[2] == 0 or entry[2] >= now]
+
+    if platform == "instagram":
+        session_entries = [entry for entry in entries if entry[1] == "sessionid"]
+        if not session_entries:
+            return "invalid", "INVALID (missing sessionid cookie)"
+
+        valid_session = [entry for entry in session_entries if entry[2] == 0 or entry[2] >= now]
+        if not valid_session:
+            return "expired", "EXPIRED (sessionid cookie expired)"
+
+        min_expiry = min((entry[2] for entry in valid_session if entry[2] > 0), default=0)
+        if min_expiry:
+            days_left = max((min_expiry - now) // 86400, 0)
+            return "ok", f"OK ({len(entries)} cookies, session valid, expires in ~{days_left} days)"
+        return "ok", f"OK ({len(entries)} cookies, session cookie present)"
+
+    if expired and not valid:
+        return "expired", f"EXPIRED (all {len(expired)} cookies expired)"
+    if expired:
+        min_valid = min((entry[2] for entry in valid if entry[2] > 0), default=0)
+        if min_valid:
+            days_left = max((min_valid - now) // 86400, 0)
+            return "ok", f"OK ({len(valid)} valid, expires in ~{days_left} days)"
+        return "ok", f"OK ({len(valid)} valid, session cookies)"
+
+    min_expiry = min((entry[2] for entry in entries if entry[2] > 0), default=0)
+    if min_expiry:
+        days_left = max((min_expiry - now) // 86400, 0)
+        return "ok", f"OK ({len(entries)} cookies, expires in ~{days_left} days)"
+    return "ok", f"OK ({len(entries)} session cookies)"
+
+
+def ensure_instagram_cookies_valid() -> None:
+    """Fail fast when an Instagram cookie file exists but cannot authenticate."""
+    status, _ = _summarize_cookie_health("instagram")
+
+    if status == "missing":
+        return
+    if status == "empty":
+        raise DownloadError("Instagram cookies file is empty. Upload a fresh www.instagram.com_cookies.txt file.")
+    if status == "invalid":
+        raise DownloadError(
+            "Instagram cookies are missing a sessionid cookie. Export cookies again while logged in."
+        )
+    if status == "expired":
+        raise DownloadError("Instagram cookies are expired. Upload a fresh www.instagram.com_cookies.txt file.")
+
+
 def check_cookies():
     """Check health of all cookie files and Telegram session."""
     print("Cookie Health Check", file=sys.stderr)
     print("=" * 40, file=sys.stderr)
 
     for platform, path in COOKIES_FILES.items():
-        if not path.exists():
-            print(f"  {platform:12s}: MISSING ({path.name})", file=sys.stderr)
-            continue
-        entries = _parse_cookie_expiry(path)
-        if not entries:
-            print(f"  {platform:12s}: EMPTY (no cookies found)", file=sys.stderr)
-            continue
-        # Check expiry of session cookies
-        now = int(time.time())
-        expired = [e for e in entries if 0 < e[2] < now]
-        valid = [e for e in entries if e[2] == 0 or e[2] >= now]
-        if expired and not valid:
-            print(f"  {platform:12s}: EXPIRED (all {len(expired)} cookies expired)", file=sys.stderr)
-        elif expired:
-            min_valid = min((e[2] for e in valid if e[2] > 0), default=0)
-            if min_valid:
-                days_left = (min_valid - now) // 86400
-                print(f"  {platform:12s}: OK ({len(valid)} valid, expires in ~{days_left} days)", file=sys.stderr)
-            else:
-                print(f"  {platform:12s}: OK ({len(valid)} valid, session cookies)", file=sys.stderr)
-        else:
-            min_expiry = min((e[2] for e in entries if e[2] > 0), default=0)
-            if min_expiry:
-                days_left = (min_expiry - now) // 86400
-                print(f"  {platform:12s}: OK ({len(entries)} cookies, expires in ~{days_left} days)", file=sys.stderr)
-            else:
-                print(f"  {platform:12s}: OK ({len(entries)} session cookies)", file=sys.stderr)
+        _, summary = _summarize_cookie_health(platform)
+        print(f"  {platform:12s}: {summary}", file=sys.stderr)
 
     # Check Telegram session
     session_path = Path(SCRIPT_DIR / "telegram.session")
@@ -350,13 +386,18 @@ def _download_instagram(url: str, tmpdir: str, progress_callback=None) -> tuple[
         "--no-mtime",
     ]
     cookies = _get_cookies("instagram")
+    if progress_callback:
+        progress_callback("info", "Checking Instagram cookies...")
+    ensure_instagram_cookies_valid()
     if cookies:
         cmd.extend(["--cookies", str(cookies)])
+        if progress_callback:
+            progress_callback("info", "Instagram session looks valid. Contacting Instagram...")
     else:
         print("Warning: instagram cookies not found. Some content may not be accessible.", file=sys.stderr)
+        if progress_callback:
+            progress_callback("info", "Instagram cookies missing. Trying public access...")
     cmd.append(url)
-    if progress_callback:
-        progress_callback("info", "Contacting Instagram...")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=GALLERY_DL_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as e:

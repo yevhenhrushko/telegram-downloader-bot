@@ -1,4 +1,5 @@
 import subprocess
+import time
 
 import pytest
 import download
@@ -7,9 +8,11 @@ from download import (
     _check_disk_space,
     _download_instagram,
     _format_duration,
+    _summarize_cookie_health,
     build_filenames,
     detect_platform,
     download_media,
+    ensure_instagram_cookies_valid,
     parse_instagram_url,
     parse_telegram_url,
     parse_tweet_url,
@@ -258,6 +261,8 @@ class TestDownloadMediaErrors:
             return subprocess.CompletedProcess(args[0], 0, stdout="", stderr="")
 
         monkeypatch.setattr(download.subprocess, "run", fake_run)
+        missing_path = tmp_path / "missing-instagram-cookies.txt"
+        monkeypatch.setitem(download.COOKIES_FILES, "instagram", missing_path)
 
         _download_instagram(
             "https://www.instagram.com/p/ABC123/",
@@ -265,4 +270,38 @@ class TestDownloadMediaErrors:
             progress_callback=lambda phase, value: seen.append((phase, value)),
         )
 
-        assert ("info", "Contacting Instagram...") in seen
+        assert ("info", "Checking Instagram cookies...") in seen
+        assert ("info", "Instagram cookies missing. Trying public access...") in seen
+
+
+class TestInstagramCookieHealth:
+    def test_instagram_cookie_summary_flags_missing_sessionid(self, monkeypatch, tmp_path):
+        cookie_path = tmp_path / "instagram-cookies.txt"
+        cookie_path.write_text(
+            "# Netscape HTTP Cookie File\n"
+            ".instagram.com\tTRUE\t/\tFALSE\t4102444800\tcsrftoken\tfake\n"
+        )
+        monkeypatch.setitem(download.COOKIES_FILES, "instagram", cookie_path)
+
+        status, summary = _summarize_cookie_health("instagram")
+
+        assert status == "invalid"
+        assert "sessionid" in summary
+        with pytest.raises(DownloadError, match="missing a sessionid cookie"):
+            ensure_instagram_cookies_valid()
+
+    def test_instagram_cookie_summary_flags_expired_session(self, monkeypatch, tmp_path):
+        cookie_path = tmp_path / "instagram-cookies.txt"
+        expired = int(time.time()) - 60
+        cookie_path.write_text(
+            "# Netscape HTTP Cookie File\n"
+            f".instagram.com\tTRUE\t/\tFALSE\t{expired}\tsessionid\tfake\n"
+        )
+        monkeypatch.setitem(download.COOKIES_FILES, "instagram", cookie_path)
+
+        status, summary = _summarize_cookie_health("instagram")
+
+        assert status == "expired"
+        assert "sessionid" in summary
+        with pytest.raises(DownloadError, match="Instagram cookies are expired"):
+            ensure_instagram_cookies_valid()

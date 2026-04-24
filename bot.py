@@ -25,8 +25,10 @@ from download import (
     DownloadError,
     _download_telegram_channel,
     _format_duration,
+    _summarize_cookie_health,
     detect_platform,
     download_media,
+    ensure_instagram_cookies_valid,
     extract_youtube_info,
     parse_telegram_url,
     parse_youtube_url,
@@ -512,6 +514,17 @@ async def handle_cookie_file(update: Update, context) -> None:
 
     platform = target_path.stem.replace("_cookies", "").replace("www.", "").replace(".com", "")
     logger.info(f"Cookie file updated: {filename} by user {update.effective_user.id}")
+    if platform == "instagram":
+        try:
+            ensure_instagram_cookies_valid()
+        except DownloadError as e:
+            await update.message.reply_text(f"Cookies updated for instagram, but the session looks invalid: {e}")
+            return
+
+        _, summary = _summarize_cookie_health("instagram")
+        await update.message.reply_text(f"Cookies updated for instagram. {summary}")
+        return
+
     await update.message.reply_text(f"Cookies updated for {platform}.")
 
 
