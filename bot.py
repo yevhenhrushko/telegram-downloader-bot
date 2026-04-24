@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -40,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("DOWNLOADER_BOT_TOKEN", "")
 TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50 MB
+PROGRESS_POLL_INTERVAL_SECONDS = 2
+PROGRESS_HEARTBEAT_SECONDS = 15
 
 # Nginx-served directory for large files
 NGINX_DIR = Path(os.environ.get("NGINX_DIR", "/var/www/downloads"))
@@ -168,7 +171,14 @@ async def _process_url(update: Update, context, url: str, mp3: bool = False) -> 
 
 async def _run_download(update: Update, status_msg, url: str, mp3: bool = False) -> None:
     """Run download with progress updates and send files."""
-    progress_state = {"msg": "", "active": True}
+    platform = detect_platform(url)
+    progress_state = {
+        "msg": "",
+        "active": True,
+        "started_at": time.monotonic(),
+        "last_update_at": time.monotonic(),
+        "last_heartbeat_at": 0.0,
+    }
 
     def _on_progress(phase, pct):
         if phase == "download":
@@ -177,15 +187,28 @@ async def _run_download(update: Update, status_msg, url: str, mp3: bool = False)
             progress_state["msg"] = f"Converting video... {pct}%"
         elif phase == "info":
             progress_state["msg"] = str(pct)
+        progress_state["last_update_at"] = time.monotonic()
+
+    def _heartbeat_message() -> str:
+        elapsed_seconds = int(time.monotonic() - progress_state["started_at"])
+        return f"Still downloading from {platform}... {elapsed_seconds}s elapsed."
 
     async def _update_progress():
         last_msg = ""
         while progress_state["active"]:
-            await asyncio.sleep(2)
+            await asyncio.sleep(PROGRESS_POLL_INTERVAL_SECONDS)
             msg = progress_state["msg"]
+            now = time.monotonic()
             if msg and msg != last_msg:
                 await _safe_edit(status_msg, msg)
                 last_msg = msg
+            elif now - progress_state["last_update_at"] >= PROGRESS_HEARTBEAT_SECONDS:
+                if now - progress_state["last_heartbeat_at"] >= PROGRESS_HEARTBEAT_SECONDS:
+                    heartbeat_msg = _heartbeat_message()
+                    if heartbeat_msg != last_msg:
+                        await _safe_edit(status_msg, heartbeat_msg)
+                        last_msg = heartbeat_msg
+                    progress_state["last_heartbeat_at"] = now
 
     progress_task = asyncio.create_task(_update_progress())
     try:

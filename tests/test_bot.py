@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import bot
 
@@ -85,3 +86,24 @@ def test_serve_large_file_url_encodes_filename(monkeypatch, tmp_path):
     assert link == "http://example.com/files/clip%20%281%29.mp4"
     assert not source.exists()
     assert (nginx_dir / "clip (1).mp4").exists()
+
+
+def test_run_download_shows_heartbeat_without_progress(monkeypatch):
+    chat = FakeChat()
+    status_msg = FakeStatusMessage(chat)
+
+    def fake_download_media(url, force, mp3, progress_callback):
+        time.sleep(0.05)
+        return []
+
+    async def fake_send_files(status_msg, saved):
+        return None
+
+    monkeypatch.setattr(bot, "download_media", fake_download_media)
+    monkeypatch.setattr(bot, "_send_files", fake_send_files)
+    monkeypatch.setattr(bot, "PROGRESS_POLL_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(bot, "PROGRESS_HEARTBEAT_SECONDS", 0.02)
+
+    asyncio.run(bot._run_download(None, status_msg, "https://www.instagram.com/p/ABC123/"))
+
+    assert any(edit.startswith("Still downloading from instagram...") for edit in status_msg.edits)

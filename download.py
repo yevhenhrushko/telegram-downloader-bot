@@ -25,6 +25,7 @@ COOKIES_FILES = {
     "youtube": SCRIPT_DIR / "youtube_cookies.txt",
 }
 GALLERY_DL = shutil.which("gallery-dl") or str(SCRIPT_DIR / "venv" / "bin" / "gallery-dl")
+GALLERY_DL_TIMEOUT_SECONDS = int(os.environ.get("GALLERY_DL_TIMEOUT_SECONDS", "180"))
 
 
 class DownloadError(Exception):
@@ -339,7 +340,7 @@ def _download_twitter(url: str, tmpdir: str, progress_callback=None) -> tuple[st
 
 # --- Instagram ---
 
-def _download_instagram(url: str, tmpdir: str) -> tuple[str, str]:
+def _download_instagram(url: str, tmpdir: str, progress_callback=None) -> tuple[str, str]:
     """Download Instagram media via gallery-dl. Returns (username, post_id)."""
     url_username, shortcode = parse_instagram_url(url)
     cmd = [
@@ -354,7 +355,14 @@ def _download_instagram(url: str, tmpdir: str) -> tuple[str, str]:
     else:
         print("Warning: instagram cookies not found. Some content may not be accessible.", file=sys.stderr)
     cmd.append(url)
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    if progress_callback:
+        progress_callback("info", "Contacting Instagram...")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=GALLERY_DL_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as e:
+        raise DownloadError(
+            f"Instagram download timed out after {GALLERY_DL_TIMEOUT_SECONDS}s. Try again or refresh cookies."
+        ) from e
     if result.returncode != 0:
         raise DownloadError(f"gallery-dl error: {result.stderr.strip()}")
 
@@ -905,7 +913,7 @@ def download_media(url: str, force: bool = False, mp3: bool = False, progress_ca
             if platform == "twitter":
                 username, media_id = _download_twitter(url, tmpdir, progress_callback=progress_callback)
             elif platform == "instagram":
-                username, media_id = _download_instagram(url, tmpdir)
+                username, media_id = _download_instagram(url, tmpdir, progress_callback=progress_callback)
             elif platform == "telegram":
                 username, media_id = _download_telegram(url, tmpdir)
             elif platform == "youtube":

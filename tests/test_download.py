@@ -1,7 +1,11 @@
+import subprocess
+
 import pytest
+import download
 from download import (
     DownloadError,
     _check_disk_space,
+    _download_instagram,
     _format_duration,
     build_filenames,
     detect_platform,
@@ -236,3 +240,29 @@ class TestDownloadMediaErrors:
         url = "https://www.instagram.com/api/v1/media/3878201540318090661/info/"
         with pytest.raises(DownloadError, match="Not a valid Instagram URL"):
             download_media(url, force=True)
+
+    def test_instagram_timeout_becomes_download_error(self, monkeypatch, tmp_path):
+        def fake_run(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+
+        monkeypatch.setattr(download.subprocess, "run", fake_run)
+        monkeypatch.setattr(download, "GALLERY_DL_TIMEOUT_SECONDS", 12)
+
+        with pytest.raises(DownloadError, match="Instagram download timed out after 12s"):
+            _download_instagram("https://www.instagram.com/p/ABC123/", str(tmp_path))
+
+    def test_instagram_emits_initial_progress_message(self, monkeypatch, tmp_path):
+        seen = []
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(args[0], 0, stdout="", stderr="")
+
+        monkeypatch.setattr(download.subprocess, "run", fake_run)
+
+        _download_instagram(
+            "https://www.instagram.com/p/ABC123/",
+            str(tmp_path),
+            progress_callback=lambda phase, value: seen.append((phase, value)),
+        )
+
+        assert ("info", "Contacting Instagram...") in seen
